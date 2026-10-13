@@ -428,6 +428,35 @@ describe("attached IDA function observations", () => {
 });
 
 describe("attached IDA legacy string inventory", () => {
+  it("retains a large one-page inventory beyond JavaScript's spread argument capacity", async () => {
+    const { producer, client } = await fixture();
+    const all = Array.from({ length: 200_000 }, (_, i) => ({
+      address: `0x${(0x3000 + i).toString(16)}`,
+      length: 5,
+      string: `inventory-${i}`,
+    }));
+    producer.overrideCall = (name) =>
+      name === "list_strings" ? { data: all, next_offset: null } : undefined;
+    try {
+      const listed = await client.execute("list_strings", {});
+      if (!listed.ok) throw listed.error;
+      const result = listed.value.result as {
+        address: string;
+        value: string;
+      }[];
+      expect(result).toHaveLength(all.length);
+      expect(result[0]).toEqual({ address: "0x3000", value: "inventory-0" });
+      expect(result.at(-1)).toEqual({
+        address: "0x33d3f",
+        value: "inventory-199999",
+      });
+      expect(
+        producer.calls.filter((call) => call.name === "list_strings"),
+      ).toEqual([expect.objectContaining({ args: { offset: 0, count: 0 } })]);
+    } finally {
+      await client.close();
+    }
+  });
   it("fetches legacy strings and literal searches in single upstream calls instead of paging", async () => {
     const { producer, client } = await fixture();
     const all = Array.from({ length: 250 }, (_, i) => ({
